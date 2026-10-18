@@ -1,0 +1,110 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Captured A8110 NT57900 dual-DSI wiring, NOT a display-enable overlay.
+ * Keep all nodes disabled until the documented prerequisites in
+ * docs/a8110-panel-bringup.md are met. No dummy supplies/backlight.
+ */
+
+#include <dt-bindings/clock/qcom,dispcc-sm8250.h>
+
+/*
+ * Full display-subsystem reset at MDSS probe. msm_mdss_reset() asserts the
+ * MDSS core BCR, so the DPU/DSI/PHY start from a clean state instead of the
+ * bootloader's live continuous-splash state.
+ */
+&mdss {
+	resets = <&dispcc DISP_CC_MDSS_CORE_BCR>;
+};
+
+&mdss_dsi0 {
+	vdda-supply = <&vreg_l9a_1p2>;
+	qcom,dual-dsi-mode;
+	qcom,sync-dual-dsi;
+	qcom,master-dsi;
+	status = "disabled";
+
+	pico_panel: panel@0 {
+		compatible = "pico,a8110-nt57900";
+		reg = <0>;
+		reset-gpios = <&tlmm 75 GPIO_ACTIVE_LOW>;
+		vio-enable-gpios = <&tlmm 133 GPIO_ACTIVE_HIGH>;
+		/*
+		 * AW3750x bias enable. These are normally driven by the vendor
+		 * aw3750x I2C regulator driver; the mainline bring-up toggles the
+		 * pins directly while the PMIC rails remain bootloader-preserved.
+		 */
+		enp-gpios = <&tlmm 15 GPIO_ACTIVE_HIGH>;
+		enn-gpios = <&tlmm 91 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pico_panel_reset>, <&pico_panel_vio>;
+		status = "disabled";
+
+		/*
+		 * Required before enabling: pico,init-sequence (p1/production),
+		 * vddio/vdd/lab/ibb/vsp/vsn supplies and a real backlight.
+		 * Do not alias AW3750x rails to PM8150L LCDB or fixed dummies.
+		 */
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+				pico_panel_in_0: endpoint {
+					remote-endpoint = <&mdss_dsi0_out>;
+				};
+			};
+			port@1 {
+				reg = <1>;
+				pico_panel_in_1: endpoint {
+					remote-endpoint = <&mdss_dsi1_out>;
+				};
+			};
+		};
+	};
+};
+
+&mdss_dsi1 {
+	vdda-supply = <&vreg_l9a_1p2>;
+	qcom,dual-dsi-mode;
+	qcom,sync-dual-dsi;
+	assigned-clock-parents = <&mdss_dsi0_phy DSI_BYTE_PLL_CLK>,
+				 <&mdss_dsi0_phy DSI_PIXEL_PLL_CLK>;
+	status = "disabled";
+};
+
+&mdss_dsi0_out {
+	data-lanes = <0 1 2 3>;
+	remote-endpoint = <&pico_panel_in_0>;
+};
+
+&mdss_dsi1_out {
+	data-lanes = <0 1 2 3>;
+	remote-endpoint = <&pico_panel_in_1>;
+};
+
+&mdss_dsi0_phy {
+	vdds-supply = <&vreg_l5a_0p875>;
+	status = "disabled";
+};
+
+&mdss_dsi1_phy {
+	vdds-supply = <&vreg_l5a_0p875>;
+	status = "disabled";
+};
+
+&tlmm {
+	pico_panel_reset: panel-reset-state {
+		pins = "gpio75";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	pico_panel_vio: panel-vio-state {
+		pins = "gpio133";
+		function = "gpio";
+		drive-strength = <16>;
+		bias-pull-down;
+	};
+};

@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/* Diagnostic handoff: preserve the user's working bias/backlight state.
+ * Not a cold-boot regulator description; do not use for suspend testing.
+ */
+&mdss { status = "okay"; };
+&mdss_dsi0 { status = "okay"; };
+&mdss_dsi1 { status = "okay"; };
+&mdss_dsi0_phy { status = "okay"; };
+&mdss_dsi1_phy { status = "okay"; };
+
+&pico_panel {
+	status = "okay";
+	/* Captured stock last_kmsg_9: hw_version_display:3 (not P1). */
+	pico,init-sequence = "production";
+	pico,preserve-boot-power;
+	/delete-property/ pinctrl-names;
+	/delete-property/ pinctrl-0;
+};

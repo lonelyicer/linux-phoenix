@@ -1,0 +1,477 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Experimental mainline board description for PICO 4 Pro (A8110).
+ *
+ * This is a bring-up prototype.  The compatible string is provisional and
+ * the electrical properties still need to be checked against the vendor DTB.
+ */
+
+/dts-v1/;
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/regulator/qcom,rpmh-regulator.h>
+#include "sm8250.dtsi"
+#include "pm8150.dtsi"
+#include "pm8150b.dtsi"
+#include "pm8150l.dtsi"
+/* PM8009 SID 0xa/0xb probes fail on this board in vendor and mainline logs.
+ * No enabled board consumer uses it. Do not instantiate the MTP extra PMIC. */
+#include "pico-a8110-abl-ovf.dtsi"
+
+/ {
+	model = "PICO 4 Pro (A8110) mainline development";
+	compatible = "pico,a8110", "qcom,kona-iot", "qcom,sm8250";
+	chassis-type = "embedded";
+
+	/* Values copied from the running A8110 DTB for the first prototype. */
+	qcom,msm-id = <0x164 0x20001>;
+	qcom,board-id = <0x10008 0x00>;
+
+	/*
+	 * Deliberately no qcom,pmic-id.  The working SM8250 umi port keeps the
+	 * stock DTBO and lets ABL apply it to the base DTB; the /abl_ovf
+	 * anchors make that overlay safe.  An unproven exact-match PMIC tuple
+	 * is not needed and would select a different ABL branch.
+	 */
+
+	/*
+	 * Crashdump: EL1 read of UART2 GENI_FW_REVISION_RO (0x988068)
+	 * faults in qcom_geni_serial_earlycon_setup. Keep the physical
+	 * UART out of both early-console selection and normal probing.
+	 * Diagnostics use the RAM printk buffer and USB ACM instead.
+	 */
+	aliases {
+		/delete-property/ serial0;
+		/* GENI requires a line alias even for the Bluetooth serdev UART.
+		 * This does not select a console; UART2 remains disabled. */
+		serial1 = &uart6;
+	};
+
+	chosen {
+		/delete-property/ stdout-path;
+		/delete-property/ linux,stdout-path;
+	};
+
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x0 0x80000000 0x0 0x3bb00000>,
+		      <0x0 0xc0000000 0x1 0xc0000000>;
+	};
+
+	reserved-memory {
+		/*
+		 * Preserve the fixed display allocations in the captured A8110
+		 * runtime DTB even while MDSS is disabled. The boot firmware may
+		 * still own these buffers. Neither vendor node has no-map or
+		 * reusable; keep that policy rather than inventing new semantics.
+		 * This does not validate the rest of the firmware memory map.
+		 */
+		pico_cont_splash_mem: memory@9c000000 {
+			reg = <0x0 0x9c000000 0x0 0x03400000>;
+		};
+
+		pico_dfps_data_mem: memory@9f400000 {
+			reg = <0x0 0x9f400000 0x0 0x00040000>;
+		};
+	};
+
+	/* GPIO numbers, active levels and keycodes are from captured gpio_keys.
+	 * Vendor label vol_up carries code 114: preserve KEY_VOLUMEDOWN. */
+	gpio-keys {
+		compatible = "gpio-keys";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pico_app_key>, <&pico_home_key>, <&pico_volume_key>, <&pico_confirm_key>;
+		key-back {
+			/* Used as an IRQ procfs name: no path separators. */
+			label = "App-Back";
+			gpios = <&tlmm 40 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_BACK>;
+			debounce-interval = <15>;
+			wakeup-source;
+		};
+		key-home {
+			label = "Home";
+			gpios = <&pm8150_gpios 1 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_HOME>;
+			debounce-interval = <15>;
+			wakeup-source;
+		};
+		key-volume {
+			label = "Volume (vendor code 114)";
+			gpios = <&pm8150_gpios 6 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_VOLUMEDOWN>;
+			debounce-interval = <15>;
+			wakeup-source;
+		};
+		key-enter {
+			label = "Confirm";
+			gpios = <&pm8150_gpios 7 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_ENTER>;
+			debounce-interval = <15>;
+			wakeup-source;
+		};
+	};
+
+	/* Map vendor CNSS/BT rails to the QCA6390 PMU binding.
+	 * No PM8009 rail is used: the captured DIG rail is PM8150 S6. */
+	qca6390-pmu {
+		compatible = "qcom,qca6390-pmu";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pico_bt_enable>, <&pico_wlan_enable>;
+		vddaon-supply = <&vreg_s6a_0p95>;
+		vddpmu-supply = <&vreg_s6a_0p95>;
+		vddrfa0p95-supply = <&vreg_s6a_0p95>;
+		vddrfa1p3-supply = <&vreg_s8c_1p3>;
+		vddrfa1p9-supply = <&vreg_s5a_1p9>;
+		vddpcie1p3-supply = <&vreg_s8c_1p3>;
+		vddpcie1p9-supply = <&vreg_s5a_1p9>;
+		vddio-supply = <&vreg_s4a_1p8>;
+		wlan-enable-gpios = <&tlmm 20 GPIO_ACTIVE_HIGH>;
+		bt-enable-gpios = <&tlmm 21 GPIO_ACTIVE_HIGH>;
+		regulators {
+			vreg_pmu_rfa_cmn: ldo0 { regulator-name = "pico-qca-rfa-cmn"; };
+			vreg_pmu_aon: ldo1 { regulator-name = "pico-qca-aon"; };
+			vreg_pmu_wlcx: ldo2 { regulator-name = "pico-qca-wlcx"; };
+			vreg_pmu_wlmx: ldo3 { regulator-name = "pico-qca-wlmx"; };
+			vreg_pmu_btcmx: ldo4 { regulator-name = "pico-qca-btcmx"; };
+			vreg_pmu_rfa_0p8: ldo5 { regulator-name = "pico-qca-rfa-0p8"; };
+			vreg_pmu_rfa_1p2: ldo6 { regulator-name = "pico-qca-rfa-1p2"; };
+			vreg_pmu_rfa_1p7: ldo7 { regulator-name = "pico-qca-rfa-1p7"; };
+			vreg_pmu_pcie_0p9: ldo8 { regulator-name = "pico-qca-pcie-0p9"; };
+			vreg_pmu_pcie_1p8: ldo9 { regulator-name = "pico-qca-pcie-1p8"; };
+		};
+	};
+
+	vph_pwr: vph-pwr-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "vph_pwr";
+		regulator-min-microvolt = <3700000>;
+		regulator-max-microvolt = <3700000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	/* These names and voltage ranges follow the observed PMIC rails. */
+	vreg_s4a_1p8: pm8150-s4-fixed {
+		compatible = "regulator-fixed";
+		regulator-name = "vreg_s4a_1p8";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+		regulator-boot-on;
+		vin-supply = <&vph_pwr>;
+	};
+
+	vreg_s6c_0p88: pm8150l-s6-fixed {
+		compatible = "regulator-fixed";
+		regulator-name = "vreg_s6c_0p88";
+		regulator-min-microvolt = <880000>;
+		regulator-max-microvolt = <880000>;
+		regulator-always-on;
+		vin-supply = <&vph_pwr>;
+	};
+};
+
+/* The resource names match the PM8150/PM8150L topology in the runtime DTB. */
+&apps_rsc {
+	regulators-0 {
+		compatible = "qcom,pm8150-rpmh-regulators";
+		qcom,pmic-id = "a";
+
+		vdd-s1-supply = <&vph_pwr>;
+		vdd-s2-supply = <&vph_pwr>;
+		vdd-s3-supply = <&vph_pwr>;
+		vdd-s4-supply = <&vph_pwr>;
+		vdd-s5-supply = <&vph_pwr>;
+		vdd-s6-supply = <&vph_pwr>;
+		vdd-s7-supply = <&vph_pwr>;
+		vdd-s8-supply = <&vph_pwr>;
+		vdd-s9-supply = <&vph_pwr>;
+		vdd-s10-supply = <&vph_pwr>;
+		vdd-l1-l8-l11-supply = <&vreg_s6c_0p88>;
+		vdd-l2-l10-supply = <&vreg_bob>;
+		vdd-l3-l4-l5-l18-supply = <&vreg_s6a_0p95>;
+		vdd-l6-l9-supply = <&vreg_s8c_1p3>;
+		vdd-l7-l12-l14-l15-supply = <&vreg_s5a_1p9>;
+		vdd-l13-l16-l17-supply = <&vreg_bob>;
+
+		vreg_s5a_1p9: smps5 {
+			regulator-name = "vreg_s5a_1p9";
+			regulator-min-microvolt = <1904000>;
+			regulator-max-microvolt = <2000000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_s6a_0p95: smps6 {
+			regulator-name = "vreg_s6a_0p95";
+			regulator-min-microvolt = <920000>;
+			regulator-max-microvolt = <1128000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l2a_3p1: ldo2 {
+			regulator-name = "vreg_l2a_3p1";
+			regulator-min-microvolt = <3072000>;
+			regulator-max-microvolt = <3072000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l5a_0p875: ldo5 {
+			regulator-name = "vreg_l5a_0p875";
+			regulator-min-microvolt = <880000>;
+			regulator-max-microvolt = <880000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l6a_1p2: ldo6 {
+			regulator-name = "vreg_l6a_1p2";
+			regulator-min-microvolt = <1200000>;
+			regulator-max-microvolt = <1200000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l9a_1p2: ldo9 {
+			regulator-name = "vreg_l9a_1p2";
+			regulator-min-microvolt = <1200000>;
+			regulator-max-microvolt = <1200000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l12a_1p8: ldo12 {
+			regulator-name = "vreg_l12a_1p8";
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l17a_3p0: ldo17 {
+			regulator-name = "vreg_l17a_3p0";
+			regulator-min-microvolt = <2496000>;
+			regulator-max-microvolt = <3008000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+	};
+
+	regulators-1 {
+		compatible = "qcom,pm8150l-rpmh-regulators";
+		qcom,pmic-id = "c";
+
+		vdd-s1-supply = <&vph_pwr>;
+		vdd-s2-supply = <&vph_pwr>;
+		vdd-s3-supply = <&vph_pwr>;
+		vdd-s4-supply = <&vph_pwr>;
+		vdd-s5-supply = <&vph_pwr>;
+		vdd-s6-supply = <&vph_pwr>;
+		vdd-s7-supply = <&vph_pwr>;
+		vdd-s8-supply = <&vph_pwr>;
+		vdd-l1-l8-supply = <&vreg_s4a_1p8>;
+		vdd-l2-l3-supply = <&vreg_s8c_1p3>;
+		vdd-l4-l5-l6-supply = <&vreg_bob>;
+		vdd-l7-l11-supply = <&vreg_bob>;
+		vdd-l9-l10-supply = <&vreg_bob>;
+		vdd-bob-supply = <&vph_pwr>;
+
+		vreg_bob: bob {
+			regulator-name = "vreg_bob";
+			regulator-min-microvolt = <3008000>;
+			regulator-max-microvolt = <4000000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_AUTO>;
+		};
+
+		vreg_s8c_1p3: smps8 {
+			regulator-name = "vreg_s8c_1p3";
+			regulator-min-microvolt = <1200000>;
+			regulator-max-microvolt = <1400000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+	};
+};
+
+&qupv3_id_0 {
+	status = "okay";
+};
+
+&uart2 {
+	/* Not accessible to this HLOS under the captured HYP mapping. */
+	status = "disabled";
+};
+
+&ufs_mem_hc {
+	status = "okay";
+
+	reset-gpios = <&tlmm 180 GPIO_ACTIVE_LOW>;
+
+	vcc-supply = <&vreg_l17a_3p0>;
+	vcc-max-microamp = <800000>;
+	vccq-supply = <&vreg_l6a_1p2>;
+	vccq-max-microamp = <800000>;
+	vccq2-supply = <&vreg_s4a_1p8>;
+	vccq2-max-microamp = <800000>;
+};
+
+&ufs_mem_phy {
+	status = "okay";
+
+	vdda-phy-supply = <&vreg_l5a_0p875>;
+	vdda-pll-supply = <&vreg_l9a_1p2>;
+};
+
+&usb_1 {
+	/* USB 2.0 only until the A8110 Type-C/high-speed wiring is verified. */
+	qcom,select-utmi-as-pipe-clk;
+	status = "okay";
+};
+
+&usb_1_dwc3 {
+	dr_mode = "peripheral";
+	maximum-speed = "high-speed";
+	phys = <&usb_1_hsphy>;
+	phy-names = "usb2-phy";
+};
+
+&usb_1_hsphy {
+	status = "okay";
+
+	vdda-pll-supply = <&vreg_l5a_0p875>;
+	vdda18-supply = <&vreg_l12a_1p8>;
+	vdda33-supply = <&vreg_l2a_3p1>;
+};
+
+&usb_2 {
+	status = "disabled";
+};
+
+&gpu {
+	status = "okay";
+	zap-shader {
+		/* Official PICO 5.13.7 split zap image, staged as
+		 * qcom/a650_zap.mdt + a650_zap.b00..b02 in the firmware
+		 * initramfs.  This is a firmware lookup name, not a bundled
+		 * firmware claim. */
+		firmware-name = "qcom/a650_zap.mdt";
+	};
+};
+
+&gmu {
+	status = "okay";
+};
+
+&pcie0 {
+	/* CNSS identifies root complex 0; PERST GPIO79 is in sm8250.dtsi. */
+	status = "okay";
+};
+
+&pcie0_phy {
+	vdda-phy-supply = <&vreg_l5a_0p875>;
+	vdda-pll-supply = <&vreg_l9a_1p2>;
+	status = "okay";
+};
+
+&pcieport0 {
+	wifi@0 {
+		compatible = "pci17cb,1101";
+		reg = <0x10000 0x0 0x0 0x0 0x0>;
+		vddrfacmn-supply = <&vreg_pmu_rfa_cmn>;
+		vddaon-supply = <&vreg_pmu_aon>;
+		vddwlcx-supply = <&vreg_pmu_wlcx>;
+		vddwlmx-supply = <&vreg_pmu_wlmx>;
+		vddrfa0p8-supply = <&vreg_pmu_rfa_0p8>;
+		vddrfa1p2-supply = <&vreg_pmu_rfa_1p2>;
+		vddrfa1p7-supply = <&vreg_pmu_rfa_1p7>;
+		vddpcie0p9-supply = <&vreg_pmu_pcie_0p9>;
+		vddpcie1p8-supply = <&vreg_pmu_pcie_1p8>;
+		/* PICO calibration must be matched, never borrow another board's. */
+	};
+};
+
+&uart6 {
+	/* Captured enabled vendor UART at 0x998000, not faulting UART2. */
+	status = "okay";
+	bluetooth {
+		compatible = "qcom,qca6390-bt";
+		vddrfacmn-supply = <&vreg_pmu_rfa_cmn>;
+		vddaon-supply = <&vreg_pmu_aon>;
+		vddbtcmx-supply = <&vreg_pmu_btcmx>;
+		vddrfa0p8-supply = <&vreg_pmu_rfa_0p8>;
+		vddrfa1p2-supply = <&vreg_pmu_rfa_1p2>;
+		vddrfa1p7-supply = <&vreg_pmu_rfa_1p7>;
+	};
+};
+
+&pon_pwrkey {
+	status = "okay";
+};
+
+&pm8150_gpios {
+	/* Binding GPIO indices are physical PMIC GPIO numbers (1-based). */
+	pico_home_key: home-key-state {
+		pins = "gpio1";
+		function = "normal";
+		power-source = <0>;
+		input-enable;
+		bias-pull-up;
+	};
+	pico_volume_key: volume-key-state {
+		pins = "gpio6";
+		function = "normal";
+		power-source = <1>;
+		input-enable;
+		bias-pull-up;
+	};
+	pico_confirm_key: confirm-key-state {
+		pins = "gpio7";
+		function = "normal";
+		power-source = <1>;
+		input-enable;
+		bias-pull-up;
+	};
+};
+
+&tlmm {
+	pico_app_key: app-key-state {
+		pins = "gpio40";
+		function = "gpio";
+		drive-strength = <6>;
+		input-enable;
+		bias-pull-up;
+	};
+	pico_bt_enable: bt-enable-state {
+		pins = "gpio21";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+	pico_wlan_enable: wlan-enable-state {
+		pins = "gpio20";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+};
+
+&camss {
+	status = "disabled";
+};
+
+&mdss {
+	/* Panel driver is compiled. Bias/backlight and 4-DSC pipeline remain
+	 * unvalidated; see docs/a8110-panel-bringup.md before enabling. */
+	status = "disabled";
+};
+
+#include "pico-a8110-display.dtsi"
+
+&adsp {
+	status = "disabled";
+};
+
+&cdsp {
+	status = "disabled";
+};
+
+&slpi {
+	status = "disabled";
+};
+
+#include "pico-a8110-display-test.dtsi"
