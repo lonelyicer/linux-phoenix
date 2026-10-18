@@ -448,6 +448,28 @@
 		drive-strength = <2>;
 		bias-pull-down;
 	};
+	/*
+	 * Vendor DTBO power/reset lines for the Maxim XR fan controller:
+	 * fan-pwr-en GPIO38, fan-pwr-bp GPIO39, mag-rst GPIO125.
+	 */
+	fan_pwr_en: fan-pwr-en {
+		gpio-hog;
+		gpios = <38 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "fan-pwr-en";
+	};
+	fan_pwr_bp: fan-pwr-bp {
+		gpio-hog;
+		gpios = <39 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "fan-pwr-bp";
+	};
+	fan_rst: fan-rst {
+		gpio-hog;
+		gpios = <125 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "fan-rst";
+	};
 };
 
 &camss {
@@ -475,3 +497,18 @@
 };
 
 #include "pico-a8110-display-test.dtsi"
+
+/*
+ * Maxim XR fan controller at I2C 0x50.  The vendor DTBO places it on the
+ * qupv3 SE13 bus (i2c@a94000) at 1 MHz, together with the touch controller.
+ * Power/reset are driven by the fan-pwr-en/fan-pwr-bp/fan-rst GPIO hogs above.
+ */
+&i2c13 {
+	status = "okay";
+	clock-frequency = <1000000>;
+
+	fan_controller: fan-controller@50 {
+		compatible = "adi,max31760";
+		reg = <0x50>;
+	};
+};
