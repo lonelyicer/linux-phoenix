@@ -58,6 +58,15 @@ static bool separate_gpu_kms;
 MODULE_PARM_DESC(separate_gpu_drm, "Use separate DRM device for the GPU (0=single DRM device for both GPU and display (default), 1=two DRM devices)");
 module_param(separate_gpu_kms, bool, 0400);
 
+/*
+ * A8110 bring-up: the bootloader leaves a live DSI/DPU/panel pipeline. Adopt
+ * it instead of resetting it. This is the mainline equivalent of the vendor
+ * is_cont_splash_enabled path.
+ */
+bool msm_cont_splash;
+MODULE_PARM_DESC(cont_splash, "Adopt the bootloader's continuous-splash pipeline");
+module_param_named(cont_splash, msm_cont_splash, bool, 0400);
+
 DECLARE_FAULT_ATTR(fail_gem_alloc);
 DECLARE_FAULT_ATTR(fail_gem_iova);
 

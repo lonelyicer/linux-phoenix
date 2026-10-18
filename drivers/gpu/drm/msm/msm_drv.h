@@ -34,6 +34,9 @@
 #include <drm/msm_drm.h>
 #include <drm/drm_gem.h>
 
+/* A8110 continuous-splash handoff (see msm_drv.c). */
+extern bool msm_cont_splash;
+
 extern struct fault_attr fail_gem_alloc;
 extern struct fault_attr fail_gem_iova;
 
