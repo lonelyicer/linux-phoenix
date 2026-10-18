@@ -203,6 +203,10 @@ xsi:schemaLocation="https://gitlab.freedesktop.org/freedreno/ rules-fd.xsd">
 	</reg32>
 	<reg32 offset="0x00044" name="DMA_BASE"/>
 	<reg32 offset="0x00048" name="DMA_LEN"/>
+	<reg32 offset="0x0004c" name="DMA_FIFO_CTRL">
+		<bitfield name="READ_WATERMARK_DISABLE" pos="16" type="boolean"/>
+		<bitfield name="WRITE_WATERMARK_DISABLE" pos="20" type="boolean"/>
+	</reg32>
 	<reg32 offset="0x00054" name="CMD_MDP_STREAM0_CTRL">
 		<bitfield name="DATA_TYPE" low="0" high="5" type="uint"/>
 		<bitfield name="VIRTUAL_CHANNEL" low="8" high="9" type="uint"/>
@@ -277,6 +281,11 @@ xsi:schemaLocation="https://gitlab.freedesktop.org/freedreno/ rules-fd.xsd">
 	</reg32>
 	<reg32 offset="0x000ac" name="LANE_SWAP_CTRL">
 		<bitfield name="DLN_SWAP_SEL" low="0" high="2" type="dsi_lane_swap"/>
+	</reg32>
+	<!-- DSI 6G v2.2 and later; offsets are relative to CTRL, not HW_VERSION. -->
+	<reg32 offset="0x000fc" name="DMA_SCHEDULE_CTRL">
+		<bitfield name="LINE" low="0" high="15" type="uint"/>
+		<bitfield name="EN" pos="28" type="boolean"/>
 	</reg32>
 	<reg32 offset="0x00108" name="ERR_INT_MASK0"/>
 	<reg32 offset="0x0010c" name="INTR_CTRL" type="DSI_IRQ"/>

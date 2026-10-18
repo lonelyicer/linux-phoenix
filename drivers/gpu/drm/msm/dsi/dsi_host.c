@@ -99,6 +99,10 @@ static int dsi_get_version(const void __iomem *base, u32 *major, u32 *minor)
 		DSI_CLK_CTRL_BYTECLK_ON | DSI_CLK_CTRL_ESCCLK_ON | \
 		DSI_CLK_CTRL_FORCE_ON_DYN_AHBM_HCLK)
 
+/* Vendor 6G controller reset/enable sequence: force the dynamic clocks too. */
+#define DSI_6G_CLK_CTRL_DYNAMIC_FORCE_ON \
+	(DSI_CLK_CTRL_ENABLE_CLKS | BIT(8) | BIT(11) | BIT(21))
+
 struct msm_dsi_host {
 	struct mipi_dsi_host base;
 
@@ -166,6 +170,7 @@ struct msm_dsi_host {
 
 	struct drm_display_mode *mode;
 	struct drm_dsc_config *dsc;
+	unsigned int dsc_slice_per_pkt;
 
 	/* connected device info */
 	unsigned int channel;
@@ -185,6 +190,16 @@ struct msm_dsi_host {
 	bool registered;
 	bool power_on;
 	bool enabled;
+	bool is_dual_panel;
+
+	/*
+	 * Saved at power-on. Video timing is programmed only in
+	 * msm_dsi_host_enable(), after the panel prepare has sent init/PPS.
+	 */
+	bool is_bonded_dsi;
+	struct msm_dsi_phy_shared_timings phy_shared_timings;
+	struct msm_dsi_phy *phy;
+
 	int irq;
 };
 
@@ -760,9 +775,34 @@ dsi_get_cmd_fmt(const enum mipi_dsi_pixel_format mipi_fmt)
 	}
 }
 
+static u32 dsi_ctrl_force_clocks(struct msm_dsi_host *msm_host)
+{
+	const struct msm_dsi_cfg_handler *cfg_hnd = msm_host->cfg_hnd;
+	u32 clocks = DSI_CLK_CTRL_ENABLE_CLKS;
+
+	if (cfg_hnd->major == MSM_DSI_VER_MAJOR_6G &&
+	    cfg_hnd->minor >= MSM_DSI_6G_VER_MINOR_V2_2_0)
+		clocks = DSI_6G_CLK_CTRL_DYNAMIC_FORCE_ON;
+
+	return clocks;
+}
+
+static void dsi_ctrl_write(struct msm_dsi_host *msm_host, u32 ctrl)
+{
+	u32 clk_ctrl = dsi_read(msm_host, REG_DSI_CLK_CTRL);
+
+	/* Latch engine enable/disable even when the dynamic clocks are gated. */
+	dsi_write(msm_host, REG_DSI_CLK_CTRL, clk_ctrl | dsi_ctrl_force_clocks(msm_host));
+	wmb(); /* clocks must be running before changing engine state */
+	dsi_write(msm_host, REG_DSI_CTRL, ctrl);
+	wmb(); /* latch engine state before restoring clock gating */
+	dsi_write(msm_host, REG_DSI_CLK_CTRL, clk_ctrl);
+	wmb(); /* finish restoring the clock controls */
+}
+
 static void dsi_ctrl_disable(struct msm_dsi_host *msm_host)
 {
-	dsi_write(msm_host, REG_DSI_CTRL, 0);
+	dsi_ctrl_write(msm_host, 0);
 }
 
 bool msm_dsi_host_is_wide_bus_enabled(struct mipi_dsi_host *host)
@@ -775,14 +815,15 @@ bool msm_dsi_host_is_wide_bus_enabled(struct mipi_dsi_host *host)
 }
 
 static void dsi_ctrl_enable(struct msm_dsi_host *msm_host,
-			struct msm_dsi_phy_shared_timings *phy_shared_timings, struct msm_dsi_phy *phy)
+			struct msm_dsi_phy_shared_timings *phy_shared_timings,
+			struct msm_dsi_phy *phy, bool video_mode)
 {
 	u32 flags = msm_host->mode_flags;
 	enum mipi_dsi_pixel_format mipi_fmt = msm_host->format;
 	const struct msm_dsi_cfg_handler *cfg_hnd = msm_host->cfg_hnd;
 	u32 data = 0, lane_ctrl = 0;
 
-	if (flags & MIPI_DSI_MODE_VIDEO) {
+	if (video_mode) {
 		if (flags & MIPI_DSI_MODE_VIDEO_HSE)
 			data |= DSI_VID_CFG0_PULSE_MODE_HSA_HE;
 		if (flags & MIPI_DSI_MODE_VIDEO_NO_HFP)
@@ -836,14 +877,31 @@ static void dsi_ctrl_enable(struct msm_dsi_host *msm_host,
 			DSI_CMD_DMA_CTRL_FROM_FRAME_BUFFER |
 			DSI_CMD_DMA_CTRL_LOW_POWER);
 
+	/*
+	 * Firmware can leave DMA scheduled for a video scanline. Panel prepare
+	 * runs before video starts, so initialize an immediate command path.
+	 * Match the vendor memory-DMA setup: small packets must not wait for
+	 * the FIFO read/write watermarks.
+	 */
+	if (cfg_hnd->major == MSM_DSI_VER_MAJOR_6G &&
+	    cfg_hnd->minor >= MSM_DSI_6G_VER_MINOR_V2_2_0) {
+		dsi_write(msm_host, REG_DSI_DMA_SCHEDULE_CTRL, 0);
+		data = dsi_read(msm_host, REG_DSI_DMA_FIFO_CTRL);
+		data |= DSI_DMA_FIFO_CTRL_READ_WATERMARK_DISABLE |
+			DSI_DMA_FIFO_CTRL_WRITE_WATERMARK_DISABLE;
+		dsi_write(msm_host, REG_DSI_DMA_FIFO_CTRL, data);
+	}
+
 	data = 0;
 	/* Always assume dedicated TE pin */
 	data |= DSI_TRIG_CTRL_TE;
 	data |= DSI_TRIG_CTRL_MDP_TRIGGER(TRIGGER_NONE);
 	data |= DSI_TRIG_CTRL_DMA_TRIGGER(TRIGGER_SW);
 	data |= DSI_TRIG_CTRL_STREAM(msm_host->channel);
-	if ((cfg_hnd->major == MSM_DSI_VER_MAJOR_6G) &&
-		(cfg_hnd->minor >= MSM_DSI_6G_VER_MINOR_V1_2))
+	/* Only command-mode MDP frames need to block concurrent command DMA. */
+	if (!(flags & MIPI_DSI_MODE_VIDEO) &&
+	    cfg_hnd->major == MSM_DSI_VER_MAJOR_6G &&
+	    cfg_hnd->minor >= MSM_DSI_6G_VER_MINOR_V1_2)
 		data |= DSI_TRIG_CTRL_BLOCK_DMA_WITHIN_FRAME;
 	dsi_write(msm_host, REG_DSI_TRIG_CTRL, data);
 
@@ -889,7 +947,7 @@ static void dsi_ctrl_enable(struct msm_dsi_host *msm_host,
 
 	data |= DSI_CTRL_ENABLE;
 
-	dsi_write(msm_host, REG_DSI_CTRL, data);
+	dsi_ctrl_write(msm_host, data);
 
 	if (msm_host->cphy_mode)
 		dsi_write(msm_host, REG_DSI_CPHY_MODE_CTRL, BIT(0));
@@ -910,17 +968,10 @@ static void dsi_update_dsc_timing(struct msm_dsi_host *msm_host, bool is_cmd_mod
 	slice_per_intf = dsc->slice_count;
 
 	total_bytes_per_intf = dsc->slice_chunk_size * slice_per_intf;
-	bytes_per_pkt = dsc->slice_chunk_size; /* * slice_per_pkt; */
+	bytes_per_pkt = dsc->slice_chunk_size * msm_host->dsc_slice_per_pkt;
 
 	eol_byte_num = total_bytes_per_intf % 3;
-
-	/*
-	 * Typically, pkt_per_line = slice_per_intf * slice_per_pkt.
-	 *
-	 * Since the current driver only supports slice_per_pkt = 1,
-	 * pkt_per_line will be equal to slice per intf for now.
-	 */
-	pkt_per_line = slice_per_intf;
+	pkt_per_line = slice_per_intf / msm_host->dsc_slice_per_pkt;
 
 	if (is_cmd_mode) /* packet data type */
 		reg = DSI_COMMAND_COMPRESSION_MODE_CTRL_STREAM0_DATATYPE(MIPI_DSI_DCS_LONG_WRITE);
@@ -1002,7 +1053,10 @@ static void dsi_timing_setup(struct msm_dsi_host *msm_host, bool is_bonded_dsi)
 			return;
 		}
 
-		dsc->pic_width = mode->hdisplay;
+		if (msm_host->is_dual_panel)
+			dsc->pic_width = hdisplay;
+		else
+			dsc->pic_width = mode->hdisplay;
 		dsc->pic_height = mode->vdisplay;
 		DBG("Mode %dx%d\n", dsc->pic_width, dsc->pic_height);
 
@@ -1069,12 +1123,8 @@ static void dsi_timing_setup(struct msm_dsi_host *msm_host, bool is_bonded_dsi)
 		else
 			/*
 			 * When DSC is enabled, WC = slice_chunk_size * slice_per_pkt + 1.
-			 * Currently, the driver only supports default value of slice_per_pkt = 1
-			 *
-			 * TODO: Expand mipi_dsi_device struct to hold slice_per_pkt info
-			 *       and adjust DSC math to account for slice_per_pkt.
 			 */
-			wc = msm_host->dsc->slice_chunk_size + 1;
+			wc = msm_host->dsc->slice_chunk_size * msm_host->dsc_slice_per_pkt + 1;
 
 		dsi_write(msm_host, REG_DSI_CMD_MDP_STREAM0_CTRL,
 			DSI_CMD_MDP_STREAM0_CTRL_WORD_COUNT(wc) |
@@ -1091,32 +1141,30 @@ static void dsi_timing_setup(struct msm_dsi_host *msm_host, bool is_bonded_dsi)
 
 static void dsi_sw_reset(struct msm_dsi_host *msm_host)
 {
-	u32 ctrl;
+	u32 ctrl = dsi_read(msm_host, REG_DSI_CTRL);
+	u32 clk_ctrl = dsi_read(msm_host, REG_DSI_CLK_CTRL);
+	u32 status = dsi_read(msm_host, REG_DSI_STATUS0);
+	u32 reset_clocks = clk_ctrl | dsi_ctrl_force_clocks(msm_host);
 
-	ctrl = dsi_read(msm_host, REG_DSI_CTRL);
+	/* Stop every engine, including firmware's video engine, before reset. */
+	dsi_ctrl_write(msm_host, ctrl & ~(DSI_CTRL_ENABLE |
+			DSI_CTRL_VID_MODE_EN | DSI_CTRL_CMD_MODE_EN));
+	dsi_write(msm_host, REG_DSI_CLK_CTRL, reset_clocks);
+	wmb(); /* all reset domains must be clocked before asserting reset */
 
-	if (ctrl & DSI_CTRL_ENABLE) {
-		dsi_write(msm_host, REG_DSI_CTRL, ctrl & ~DSI_CTRL_ENABLE);
-		/*
-		 * dsi controller need to be disabled before
-		 * clocks turned on
-		 */
-		wmb();
-	}
-
-	dsi_write(msm_host, REG_DSI_CLK_CTRL, DSI_CLK_CTRL_ENABLE_CLKS);
-	wmb(); /* clocks need to be enabled before reset */
-
-	/* dsi controller can only be reset while clocks are running */
 	dsi_write(msm_host, REG_DSI_RESET, 1);
-	msleep(DSI_RESET_TOGGLE_DELAY_MS); /* make sure reset happen */
+	wmb(); /* assert reset before starting the hold interval */
+	msleep(DSI_RESET_TOGGLE_DELAY_MS);
 	dsi_write(msm_host, REG_DSI_RESET, 0);
-	wmb(); /* controller out of reset */
+	wmb(); /* release reset before reading engine state */
 
-	if (ctrl & DSI_CTRL_ENABLE) {
-		dsi_write(msm_host, REG_DSI_CTRL, ctrl);
-		wmb();	/* make sure dsi controller enabled again */
-	}
+	DBG("DSI%d reset: ctrl=%08x clocks=%08x status=%08x->%08x",
+	    msm_host->id, ctrl, reset_clocks, status,
+	    dsi_read(msm_host, REG_DSI_STATUS0));
+
+	dsi_write(msm_host, REG_DSI_CLK_CTRL, clk_ctrl);
+	wmb(); /* restore clocks before restoring the controller state */
+	dsi_ctrl_write(msm_host, ctrl);
 }
 
 static void dsi_op_mode_config(struct msm_dsi_host *msm_host,
@@ -1141,7 +1189,7 @@ static void dsi_op_mode_config(struct msm_dsi_host *msm_host,
 		dsi_ctrl |= DSI_CTRL_ENABLE;
 	}
 
-	dsi_write(msm_host, REG_DSI_CTRL, dsi_ctrl);
+	dsi_ctrl_write(msm_host, dsi_ctrl);
 }
 
 static void dsi_set_tx_power_mode(int mode, struct msm_dsi_host *msm_host)
@@ -1527,13 +1575,40 @@ static int dsi_cmds2buf_tx(struct msm_dsi_host *msm_host,
 	return len;
 }
 
+void msm_dsi_host_dump_regs(struct mipi_dsi_host *host)
+{
+	struct msm_dsi_host *msm_host = to_msm_dsi_host(host);
+	const struct msm_dsi_cfg_handler *cfg_hnd = msm_host->cfg_hnd;
+	struct device *dev = &msm_host->pdev->dev;
+
+	dev_err_ratelimited(dev,
+		"DSI%d: ctrl=%08x status=%08x fifo=%08x clk=%08x lane=%08x ack=%08x timeout=%08x phyerr=%08x\n",
+		msm_host->id, dsi_read(msm_host, REG_DSI_CTRL),
+		dsi_read(msm_host, REG_DSI_STATUS0), dsi_read(msm_host, REG_DSI_FIFO_STATUS),
+		dsi_read(msm_host, REG_DSI_CLK_STATUS), dsi_read(msm_host, REG_DSI_LANE_STATUS),
+		dsi_read(msm_host, REG_DSI_ACK_ERR_STATUS),
+		dsi_read(msm_host, REG_DSI_TIMEOUT_STATUS),
+		dsi_read(msm_host, REG_DSI_DLN0_PHY_ERR));
+	dev_err_ratelimited(dev,
+		"DSI%d: intr=%08x dma_ctrl=%08x trig=%08x dma_base=%08x dma_len=%08x\n",
+		msm_host->id, dsi_read(msm_host, REG_DSI_INTR_CTRL),
+		dsi_read(msm_host, REG_DSI_CMD_DMA_CTRL), dsi_read(msm_host, REG_DSI_TRIG_CTRL),
+		dsi_read(msm_host, REG_DSI_DMA_BASE), dsi_read(msm_host, REG_DSI_DMA_LEN));
+	if (cfg_hnd->major == MSM_DSI_VER_MAJOR_6G &&
+	    cfg_hnd->minor >= MSM_DSI_6G_VER_MINOR_V2_2_0)
+		dev_err_ratelimited(dev, "DSI%d: dma_fifo=%08x dma_schedule=%08x\n",
+			msm_host->id, dsi_read(msm_host, REG_DSI_DMA_FIFO_CTRL),
+			dsi_read(msm_host, REG_DSI_DMA_SCHEDULE_CTRL));
+}
+
 static void dsi_err_worker(struct work_struct *work)
 {
 	struct msm_dsi_host *msm_host =
 		container_of(work, struct msm_dsi_host, err_work);
 	u32 status = msm_host->err_work_state;
 
-	pr_err_ratelimited("%s: status=%x\n", __func__, status);
+	dev_err_ratelimited(&msm_host->pdev->dev, "DSI%d error state=%x\n",
+			    msm_host->id, status);
 	if (status & DSI_ERR_STATE_MDP_FIFO_UNDERFLOW)
 		dsi_sw_reset(msm_host);
 
@@ -1592,7 +1667,20 @@ static void dsi_fifo_status(struct msm_dsi_host *msm_host)
 
 	status = dsi_read(msm_host, REG_DSI_FIFO_STATUS);
 
-	/* fifo underflow, overflow */
+	/* FIFO empty/full and watermark bits are status, not errors. */
+	status &= DSI_FIFO_STATUS_VIDEO_MDP_FIFO_OVERFLOW |
+		  DSI_FIFO_STATUS_VIDEO_MDP_FIFO_UNDERFLOW |
+		  DSI_FIFO_STATUS_CMD_MDP_FIFO_UNDERFLOW |
+		  DSI_FIFO_STATUS_CMD_DMA_FIFO_UNDERFLOW |
+		  DSI_FIFO_STATUS_DLN0_LP_FIFO_OVERFLOW |
+		  DSI_FIFO_STATUS_DLN0_HS_FIFO_OVERFLOW |
+		  DSI_FIFO_STATUS_DLN0_HS_FIFO_UNDERFLOW |
+		  DSI_FIFO_STATUS_DLN1_HS_FIFO_OVERFLOW |
+		  DSI_FIFO_STATUS_DLN1_HS_FIFO_UNDERFLOW |
+		  DSI_FIFO_STATUS_DLN2_HS_FIFO_OVERFLOW |
+		  DSI_FIFO_STATUS_DLN2_HS_FIFO_UNDERFLOW |
+		  DSI_FIFO_STATUS_DLN3_HS_FIFO_OVERFLOW |
+		  DSI_FIFO_STATUS_DLN3_HS_FIFO_UNDERFLOW;
 	if (status) {
 		dsi_write(msm_host, REG_DSI_FIFO_STATUS, status);
 		msm_host->err_work_state |= DSI_ERR_STATE_FIFO;
@@ -1629,6 +1717,9 @@ static void dsi_clk_status(struct msm_dsi_host *msm_host)
 
 static void dsi_error(struct msm_dsi_host *msm_host)
 {
+	/* Capture raw status before the handlers acknowledge W1C registers. */
+	msm_dsi_host_dump_regs(&msm_host->base);
+
 	/* disable dsi error interrupt */
 	dsi_intr_ctrl(msm_host, DSI_IRQ_MASK_ERROR, 0);
 
@@ -1679,12 +1770,24 @@ static int dsi_host_attach(struct mipi_dsi_host *host,
 	if (dsi->lanes > msm_host->num_data_lanes)
 		return -EINVAL;
 
+	msm_host->is_dual_panel = dsi->dual_panel;
 	msm_host->channel = dsi->channel;
 	msm_host->lanes = dsi->lanes;
 	msm_host->format = dsi->format;
 	msm_host->mode_flags = dsi->mode_flags;
-	if (dsi->dsc)
+	if (dsi->dsc) {
+		unsigned int slices = dsi->dsc->slice_count;
+		unsigned int per_pkt = dsi->dsc->dsc_slice_per_pkt ?: 1;
+		unsigned int packets;
+
+		if (!slices || per_pkt > slices || slices % per_pkt)
+			return -EINVAL;
+		packets = slices / per_pkt;
+		if (packets != 1 && packets != 2 && packets != 4)
+			return -EINVAL;
 		msm_host->dsc = dsi->dsc;
+		msm_host->dsc_slice_per_pkt = per_pkt;
+	}
 
 	ret = dsi_dev_attach(msm_host->pdev);
 	if (ret)
@@ -2101,21 +2204,17 @@ int msm_dsi_host_xfer_prepare(struct mipi_dsi_host *host,
 				const struct mipi_dsi_msg *msg)
 {
 	struct msm_dsi_host *msm_host = to_msm_dsi_host(host);
-	const struct msm_dsi_cfg_handler *cfg_hnd = msm_host->cfg_hnd;
-
-	/* TODO: make sure dsi_cmd_mdp is idle.
-	 * Since DSI6G v1.2.0, we can set DSI_TRIG_CTRL.BLOCK_DMA_WITHIN_FRAME
-	 * to ask H/W to wait until cmd mdp is idle. S/W wait is not needed.
-	 * How to handle the old versions? Wait for mdp cmd done?
-	 */
+	int ret;
 
 	/*
-	 * mdss interrupt is generated in mdp core clock domain
-	 * mdp clock need to be enabled to receive dsi interrupt
+	 * transfer() requires power_on; host_power_on() owns the link clocks
+	 * until host_power_off(). Do not reprogram the shared PLL or drop its
+	 * OPP vote around every packet, including the panel prepare sequence.
 	 */
-	pm_runtime_get_sync(&msm_host->pdev->dev);
-	cfg_hnd->ops->link_clk_set_rate(msm_host);
-	cfg_hnd->ops->link_clk_enable(msm_host);
+
+	ret = pm_runtime_resume_and_get(&msm_host->pdev->dev);
+	if (ret < 0)
+		return ret;
 
 	/* TODO: vote for bus bandwidth */
 
@@ -2123,10 +2222,8 @@ int msm_dsi_host_xfer_prepare(struct mipi_dsi_host *host,
 		dsi_set_tx_power_mode(0, msm_host);
 
 	msm_host->dma_cmd_ctrl_restore = dsi_read(msm_host, REG_DSI_CTRL);
-	dsi_write(msm_host, REG_DSI_CTRL,
-		msm_host->dma_cmd_ctrl_restore |
-		DSI_CTRL_CMD_MODE_EN |
-		DSI_CTRL_ENABLE);
+	dsi_ctrl_write(msm_host, msm_host->dma_cmd_ctrl_restore |
+		       DSI_CTRL_CMD_MODE_EN | DSI_CTRL_ENABLE);
 	dsi_intr_ctrl(msm_host, DSI_IRQ_MASK_CMD_DMA_DONE, 1);
 
 	return 0;
@@ -2136,17 +2233,15 @@ void msm_dsi_host_xfer_restore(struct mipi_dsi_host *host,
 				const struct mipi_dsi_msg *msg)
 {
 	struct msm_dsi_host *msm_host = to_msm_dsi_host(host);
-	const struct msm_dsi_cfg_handler *cfg_hnd = msm_host->cfg_hnd;
 
 	dsi_intr_ctrl(msm_host, DSI_IRQ_MASK_CMD_DMA_DONE, 0);
-	dsi_write(msm_host, REG_DSI_CTRL, msm_host->dma_cmd_ctrl_restore);
+	dsi_ctrl_write(msm_host, msm_host->dma_cmd_ctrl_restore);
 
 	if (!(msg->flags & MIPI_DSI_MSG_USE_LPM))
 		dsi_set_tx_power_mode(1, msm_host);
 
 	/* TODO: unvote for bus bandwidth */
 
-	cfg_hnd->ops->link_clk_disable(msm_host);
 	pm_runtime_put(&msm_host->pdev->dev);
 }
 
@@ -2317,6 +2412,17 @@ void msm_dsi_host_set_phy_mode(struct mipi_dsi_host *host,
 	msm_host->cphy_mode = src_phy->cphy_mode;
 }
 
+void msm_dsi_host_quiesce(struct mipi_dsi_host *host)
+{
+	struct msm_dsi_host *msm_host = to_msm_dsi_host(host);
+	u32 ctrl = dsi_read(msm_host, REG_DSI_CTRL);
+
+	dsi_ctrl_disable(msm_host);
+	msm_host->enabled = false;
+	DBG("DSI%d quiesce: ctrl=%08x->%08x status=%08x", msm_host->id, ctrl,
+	    dsi_read(msm_host, REG_DSI_CTRL), dsi_read(msm_host, REG_DSI_STATUS0));
+}
+
 void msm_dsi_host_reset_phy(struct mipi_dsi_host *host)
 {
 	struct msm_dsi_host *msm_host = to_msm_dsi_host(host);
@@ -2372,9 +2478,27 @@ void msm_dsi_host_disable_irq(struct mipi_dsi_host *host)
 int msm_dsi_host_enable(struct mipi_dsi_host *host)
 {
 	struct msm_dsi_host *msm_host = to_msm_dsi_host(host);
+	bool video = !!(msm_host->mode_flags & MIPI_DSI_MODE_VIDEO);
 
-	dsi_op_mode_config(msm_host,
-		!!(msm_host->mode_flags & MIPI_DSI_MODE_VIDEO), true);
+	if (!msm_host->power_on)
+		return -EINVAL;
+
+	/* The panel prepare may already have enabled video (A8110 order). */
+	if (msm_host->enabled)
+		return 0;
+
+	/*
+	 * The panel prepare (init/PPS) has completed by the time the bridge
+	 * enable runs. Only now program video timing and start the video
+	 * engine, so the init commands cannot race video-done.
+	 */
+	if (video) {
+		dsi_timing_setup(msm_host, msm_host->is_bonded_dsi);
+		dsi_ctrl_enable(msm_host, &msm_host->phy_shared_timings,
+				msm_host->phy, true);
+	}
+
+	dsi_op_mode_config(msm_host, video, true);
 
 	/* TODO: clock should be turned off for command mode,
 	 * and only turned on before MDP START.
@@ -2465,9 +2589,27 @@ int msm_dsi_host_power_on(struct mipi_dsi_host *host,
 		goto fail_disable_clk;
 	}
 
-	dsi_timing_setup(msm_host, is_bonded_dsi);
+	/*
+	 * Save the timing/PHY data for msm_dsi_host_enable(). The panel prepare
+	 * (init/PPS) runs after this function and before the bridge enable, so
+	 * video timing must not be programmed yet.
+	 */
+	msm_host->is_bonded_dsi = is_bonded_dsi;
+	msm_host->phy_shared_timings = *phy_shared_timings;
+	msm_host->phy = phy;
+
+	dsi_ctrl_disable(msm_host);
 	dsi_sw_reset(msm_host);
-	dsi_ctrl_enable(msm_host, phy_shared_timings, phy);
+
+	/*
+	 * Bring the link up in command mode only. Do not call
+	 * dsi_timing_setup()/video dsi_ctrl_enable() here: that starts the
+	 * video engine before the panel has been prepared and makes the panel
+	 * init/PPS commands race video-done.
+	 */
+	dsi_ctrl_enable(msm_host, phy_shared_timings, phy, false);
+	dsi_op_mode_config(msm_host, false, true);
+	msm_host->enabled = false;
 
 	msm_host->power_on = true;
 	mutex_unlock(&msm_host->dev_mutex);
@@ -2546,6 +2688,9 @@ enum drm_mode_status msm_dsi_host_check_dsc(struct mipi_dsi_host *host,
 
 	if (!msm_host->dsc)
 		return MODE_OK;
+
+	if (msm_host->is_dual_panel)
+		pic_width = mode->hdisplay / 2;
 
 	if (pic_width % dsc->slice_width) {
 		pr_err("DSI: pic_width %d has to be multiple of slice %d\n",

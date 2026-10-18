@@ -755,6 +755,14 @@ int msm_dsi_phy_enable(struct msm_dsi_phy *phy,
 		goto reg_en_fail;
 	}
 
+	/*
+	 * The bootloader may have left the PHY/PLL running. ops.enable() alone
+	 * can reuse that state, leaving the link in the wrong mode on warm
+	 * boots. Force a full PHY/PLL reset before enabling it for Linux.
+	 */
+	if (phy->cfg->ops.disable)
+		phy->cfg->ops.disable(phy);
+
 	ret = phy->cfg->ops.enable(phy, clk_req);
 	if (ret) {
 		DRM_DEV_ERROR(dev, "%s: phy enable failed, %d\n", __func__, ret);
