@@ -290,6 +290,7 @@
 
 &qupv3_id_0 {
 	status = "okay";
+	firmware-name = "qcom/sm8250/qupv3fw.elf";
 };
 
 &uart2 {
