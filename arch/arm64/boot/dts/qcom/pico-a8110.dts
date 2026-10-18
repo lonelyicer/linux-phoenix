@@ -292,11 +292,6 @@
 	status = "okay";
 };
 
-/* QUP1 hosts the SE13 I2C bus with the Maxim fan controller. */
-&qupv3_id_1 {
-	status = "okay";
-};
-
 &uart2 {
 	/* Not accessible to this HLOS under the captured HYP mapping. */
 	status = "disabled";
@@ -504,11 +499,11 @@
 #include "pico-a8110-display-test.dtsi"
 
 /*
- * Maxim XR fan controller at I2C 0x50.  The vendor DTBO places it on the
- * qupv3 SE13 bus (i2c@a94000) at 1 MHz, together with the touch controller.
+ * Vendor kona-xrfusion-ult.dtsi places the Maxim XR fan controller on the
+ * SE1 I2C bus (i2c@984000), not SE13.  SE13 is explicitly disabled there.
  * Power/reset are driven by the fan-pwr-en/fan-pwr-bp/fan-rst GPIO hogs above.
  */
-&i2c13 {
+&i2c1 {
 	status = "okay";
 	clock-frequency = <1000000>;
 
