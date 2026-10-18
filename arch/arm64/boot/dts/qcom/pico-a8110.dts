@@ -462,7 +462,7 @@
 	fan_pwr_bp: fan-pwr-bp {
 		gpio-hog;
 		gpios = <39 GPIO_ACTIVE_HIGH>;
-		output-low;
+		output-high;
 		line-name = "fan-pwr-bp";
 	};
 	fan_rst: fan-rst {
@@ -512,7 +512,8 @@
 	pwm_fan: fan {
 		compatible = "pwm-fan";
 		pwms = <&pm8150l_lpg 1 40000000>;
-		interrupts-extended = <&tlmm 49 IRQ_TYPE_EDGE_RISING>;
+		gpios = <&tlmm 38 GPIO_ACTIVE_HIGH>;
+		fan_pwm_irq = <&tlmm 49 GPIO_ACTIVE_HIGH>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&fan_tach_default>;
 		#cooling-cells = <2>;
