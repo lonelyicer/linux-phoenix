@@ -11,6 +11,7 @@
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
+#include <dt-bindings/usb/pd.h>
 #include "sm8250.dtsi"
 #include "pm8150.dtsi"
 #include "pm8150b.dtsi"
@@ -46,6 +47,11 @@
 		/* GENI requires a line alias even for the Bluetooth serdev UART.
 		 * This does not select a console; UART2 remains disabled. */
 		serial1 = &uart6;
+		/* GD32 fan MCU on SE1 (0x984000).  The driver falls back to the
+		 * "hsuart" alias when no "serial" alias exists, which gives us
+		 * /dev/ttyHS0 without claiming serial0 (reserved for the USB
+		 * ACM diagnostic console). */
+		hsuart0 = &uart1;
 	};
 
 	chosen {
@@ -293,6 +299,70 @@
 	firmware-name = "qcom/sm8250/qupv3fw.elf";
 };
 
+&qupv3_id_2 {
+	status = "okay";
+	firmware-name = "qcom/sm8250/qupv3fw.elf";
+};
+
+&uart1 {
+	/* GD32 fan controller: 2-wire, 115200 8N1 on TLMM GPIO6/7. */
+	status = "okay";
+};
+
+&spi19 {
+	/*
+	 * PICO station MCU (controller RF link): SPI19 CS0 on TLMM
+	 * GPIO0-3 (qup19).  Reset is GPIO11, RFIC IO2/IO3 are GPIO4/8.
+	 * The station protocol runs in userspace over spidev + gpiochip.
+	 */
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&qup19_spi_default>;
+
+	spidev@0 {
+		compatible = "picovr,nordic", "rohm,dh2228fv";
+		reg = <0>;
+		spi-max-frequency = <6000000>;
+	};
+};
+
+&pm8150l_adc {
+	/* Stock zone86 skin-msm-therm-usr: PM8150L ADC-TM5 channel 0x4e. */
+	channel@4e {
+		reg = <ADC5_AMUX_THM2_100K_PU>;
+		qcom,pre-scaling = <1 1>;
+		label = "skin_msm_therm";
+	};
+};
+
+&pm8150l_adc_tm {
+	status = "okay";
+
+	skin-msm-therm@4e {
+		reg = <0x4e>;
+		io-channels = <&pm8150l_adc ADC5_AMUX_THM2_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time-us = <200>;
+		qcom,pre-scaling = <1 1>;
+	};
+};
+
+&{/thermal-zones} {
+	skin-msm-therm {
+		polling-delay-passive = <0>;
+		polling-delay = <0>;
+		thermal-sensors = <&pm8150l_adc_tm 0x4e>;
+
+		trips {
+			skin-msm-therm-trip0 {
+				temperature = <60000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+		};
+	};
+};
+
 &uart2 {
 	/* Not accessible to this HLOS under the captured HYP mapping. */
 	status = "disabled";
@@ -325,10 +395,12 @@
 };
 
 &usb_1_dwc3 {
-	dr_mode = "peripheral";
+	dr_mode = "otg";
 	maximum-speed = "high-speed";
 	phys = <&usb_1_hsphy>;
 	phy-names = "usb2-phy";
+	usb-role-switch;
+	role-switch-default-mode = "peripheral";
 };
 
 &usb_1_hsphy {
@@ -337,6 +409,51 @@
 	vdda-pll-supply = <&vreg_l5a_0p875>;
 	vdda18-supply = <&vreg_l12a_1p8>;
 	vdda33-supply = <&vreg_l2a_3p1>;
+};
+
+&usb_1_dwc3_hs_out {
+	remote-endpoint = <&pm8150b_hs_in>;
+};
+
+&pm8150b_vbus {
+	regulator-min-microamp = <500000>;
+	regulator-max-microamp = <3000000>;
+	status = "okay";
+};
+
+&pm8150b_typec {
+	status = "okay";
+	vdd-pdphy-supply = <&vreg_l2a_3p1>;
+
+	connector {
+		compatible = "usb-c-connector";
+		op-sink-microwatt = <10000000>;
+		power-role = "dual";
+		data-role = "dual";
+		self-powered;
+
+		source-pdos = <PDO_FIXED(5000, 3000,
+					 PDO_FIXED_DUAL_ROLE |
+					 PDO_FIXED_USB_COMM |
+					 PDO_FIXED_DATA_SWAP)>;
+		sink-pdos = <PDO_FIXED(5000, 3000,
+				       PDO_FIXED_DUAL_ROLE |
+				       PDO_FIXED_USB_COMM |
+				       PDO_FIXED_DATA_SWAP)
+				       PDO_VAR(5000, 12000, 3000)>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+				pm8150b_hs_in: endpoint {
+					remote-endpoint = <&usb_1_dwc3_hs_out>;
+				};
+			};
+		};
+	};
 };
 
 &usb_2 {
@@ -449,6 +566,12 @@
 		drive-strength = <2>;
 		bias-pull-down;
 	};
+	qup19_spi_default: qup19-spi-default-state {
+		pins = "gpio0", "gpio1", "gpio2", "gpio3";
+		function = "qup19";
+		drive-strength = <6>;
+		bias-disable;
+	};
 	/*
 	 * Vendor DTBO power/reset lines for the Maxim XR fan controller:
 	 * fan-pwr-en GPIO38, fan-pwr-bp GPIO39, mag-rst GPIO125.
@@ -468,7 +591,16 @@
 };
 
 &camss {
-	status = "disabled";
+	/* CAMSS/CCI bring-up step: no sensor node yet. */
+	status = "okay";
+};
+
+&cci0 {
+	status = "okay";
+};
+
+&cci1 {
+	status = "okay";
 };
 
 &mdss {
@@ -505,7 +637,7 @@
 / {
 	pwm_fan: fan {
 		compatible = "pwm-fan";
-		pwms = <&pm8150l_lpg 1 40000000>;
+		pwms = <&pm8150l_lpg 0 40000000>;
 		gpios = <&tlmm 38 GPIO_ACTIVE_HIGH>;
 		fan_pwm_irq = <&tlmm 49 GPIO_ACTIVE_HIGH>;
 		pinctrl-names = "default";
