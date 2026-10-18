@@ -266,6 +266,7 @@ CONFIG_HID_GENERIC=y
 CONFIG_JOYSTICK_XPAD=y
 CONFIG_IIO=y
 CONFIG_SENSORS_PWM_FAN=y
+CONFIG_PWM_PM8916=y
 
 # Compile DSP/audio/video frameworks; do not invent board routes or firmware.
 CONFIG_REMOTEPROC=y

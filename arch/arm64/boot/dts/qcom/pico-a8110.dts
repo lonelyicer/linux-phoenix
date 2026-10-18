@@ -462,7 +462,7 @@
 	fan_pwr_bp: fan-pwr-bp {
 		gpio-hog;
 		gpios = <39 GPIO_ACTIVE_HIGH>;
-		output-high;
+		output-low;
 		line-name = "fan-pwr-bp";
 	};
 	fan_rst: fan-rst {
@@ -500,16 +500,29 @@
 #include "pico-a8110-display-test.dtsi"
 
 /*
- * Vendor kona-xrfusion-ult.dtsi places the Maxim XR fan controller on the
- * SE1 I2C bus (i2c@984000), not SE13.  SE13 is explicitly disabled there.
- * Power/reset are driven by the fan-pwr-en/fan-pwr-bp/fan-rst GPIO hogs above.
+ * Production PICO fan is the vendor pwm-fan: PWM from PM8150L LPG channel 1,
+ * tach on GPIO49, power-enable on GPIO38.  The Maxim I2C node at 0x50 is not
+ * the production fan path (it does not ACK even with all power rails up).
  */
-&i2c1 {
+&pm8150l_lpg {
 	status = "okay";
-	clock-frequency = <1000000>;
+};
 
-	fan_controller: fan-controller@50 {
-		compatible = "adi,max31760";
-		reg = <0x50>;
+/ {
+	pwm_fan: fan {
+		compatible = "pwm-fan";
+		pwms = <&pm8150l_lpg 1 40000000>;
+		interrupts-extended = <&tlmm 49 IRQ_TYPE_EDGE_RISING>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&fan_tach_default>;
+		#cooling-cells = <2>;
+	};
+};
+
+&tlmm {
+	fan_tach_default: fan-tach-default {
+		pins = "gpio49";
+		function = "gpio";
+		bias-disable;
 	};
 };
