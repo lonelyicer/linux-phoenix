@@ -1156,4 +1156,17 @@ config DRM_PANEL_XINPENG_XPP055C272
 	  Say Y here if you want to enable support for the Xinpeng
 	  XPP055C272 controller for 720x1280 LCD panels with MIPI/RGB/SPI
 	  system interfaces.
+# BEGIN PICO A8110 PANEL (scripts/install_a8110_panel.py)
+config DRM_PANEL_PICO_NT57900
+	tristate "PICO A8110 dual Innolux NT57900 panel (bring-up)"
+	depends on OF && GPIOLIB
+	depends on DRM_MIPI_DSI && BACKLIGHT_CLASS_DEVICE
+	depends on REGULATOR
+	help
+	  Experimental dual-DSI 4320x2160 90Hz panel driver for PICO A8110.
+	  The board display nodes must remain disabled until bias supplies,
+	  external backlight and the four-DSC DPU pipeline are validated.
+
+# END PICO A8110 PANEL
+
 endmenu
