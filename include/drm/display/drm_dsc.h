@@ -267,6 +267,13 @@ struct drm_dsc_config {
 	 * Offset adjustment for second line in Native 4:2:0 mode
 	 */
 	u16 second_line_offset_adj;
+
+	/**
+	 * @dsc_slice_per_pkt:
+	 * Number of DSC slices to be sent in a single packet. This is not
+	 * part of DSC standard, and only used in some DSI panels so far.
+	 */
+	unsigned int dsc_slice_per_pkt;
 };
 
 /**

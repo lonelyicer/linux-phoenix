@@ -11,6 +11,9 @@
 #include "dpu_trace.h"
 #include "disp/msm_disp_snapshot.h"
 
+/* A8110 continuous-splash handoff (defined in msm_drv.c). */
+extern bool msm_cont_splash;
+
 #include <drm/display/drm_dsc_helper.h>
 #include <drm/drm_managed.h>
 
@@ -553,6 +556,10 @@ static void dpu_encoder_phys_vid_prepare_for_kickoff(
 	struct dpu_hw_ctl *ctl;
 	int rc;
 	struct drm_encoder *drm_enc;
+
+	/* A8110: do not wait on a CTL reset owned by the bootloader. */
+	if (msm_cont_splash)
+		return;
 
 	drm_enc = phys_enc->parent;
 
