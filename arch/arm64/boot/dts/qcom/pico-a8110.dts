@@ -453,12 +453,6 @@
 	 * Vendor DTBO power/reset lines for the Maxim XR fan controller:
 	 * fan-pwr-en GPIO38, fan-pwr-bp GPIO39, mag-rst GPIO125.
 	 */
-	fan_pwr_en: fan-pwr-en {
-		gpio-hog;
-		gpios = <38 GPIO_ACTIVE_HIGH>;
-		output-high;
-		line-name = "fan-pwr-en";
-	};
 	fan_pwr_bp: fan-pwr-bp {
 		gpio-hog;
 		gpios = <39 GPIO_ACTIVE_HIGH>;
