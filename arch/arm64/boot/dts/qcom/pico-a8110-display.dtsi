@@ -23,8 +23,8 @@
 	qcom,master-dsi;
 	status = "disabled";
 
-	pico_panel: panel@0 {
-		compatible = "pico,a8110-nt57900";
+	panel_innolux_wj026da: panel@0 {
+		compatible = "innolux,wj026da-03a", "pico,a8110-nt57900";
 		reg = <0>;
 		reset-gpios = <&tlmm 75 GPIO_ACTIVE_LOW>;
 		vio-enable-gpios = <&tlmm 133 GPIO_ACTIVE_HIGH>;
@@ -36,7 +36,7 @@
 		enp-gpios = <&tlmm 15 GPIO_ACTIVE_HIGH>;
 		enn-gpios = <&tlmm 91 GPIO_ACTIVE_HIGH>;
 		pinctrl-names = "default";
-		pinctrl-0 = <&pico_panel_reset>, <&pico_panel_vio>;
+		pinctrl-0 = <&panel_innolux_wj026da_reset>, <&panel_innolux_wj026da_vio>;
 		status = "disabled";
 
 		/*
@@ -50,13 +50,13 @@
 
 			port@0 {
 				reg = <0>;
-				pico_panel_in_0: endpoint {
+				panel_innolux_wj026da_in_0: endpoint {
 					remote-endpoint = <&mdss_dsi0_out>;
 				};
 			};
 			port@1 {
 				reg = <1>;
-				pico_panel_in_1: endpoint {
+				panel_innolux_wj026da_in_1: endpoint {
 					remote-endpoint = <&mdss_dsi1_out>;
 				};
 			};
@@ -75,12 +75,12 @@
 
 &mdss_dsi0_out {
 	data-lanes = <0 1 2 3>;
-	remote-endpoint = <&pico_panel_in_0>;
+	remote-endpoint = <&panel_innolux_wj026da_in_0>;
 };
 
 &mdss_dsi1_out {
 	data-lanes = <0 1 2 3>;
-	remote-endpoint = <&pico_panel_in_1>;
+	remote-endpoint = <&panel_innolux_wj026da_in_1>;
 };
 
 &mdss_dsi0_phy {
@@ -94,14 +94,14 @@
 };
 
 &tlmm {
-	pico_panel_reset: panel-reset-state {
+	panel_innolux_wj026da_reset: panel-reset-state {
 		pins = "gpio75";
 		function = "gpio";
 		drive-strength = <8>;
 		bias-disable;
 	};
 
-	pico_panel_vio: panel-vio-state {
+	panel_innolux_wj026da_vio: panel-vio-state {
 		pins = "gpio133";
 		function = "gpio";
 		drive-strength = <16>;

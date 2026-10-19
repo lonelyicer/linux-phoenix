@@ -4,7 +4,7 @@
 #ifndef PICO_NT57900_CMDS_H
 #define PICO_NT57900_CMDS_H
 
-struct nt57900_cmd {
+struct wj026da_cmd {
 	u8 type;
 	u8 delay_ms;
 	u8 len;
@@ -14,7 +14,7 @@ struct nt57900_cmd {
 /* qcom,mdss-dsi-on-command
  * SHA256: 961b5f50c6d7655657346b8206fec266a9e09cb77fa930b9fe924c97b50d7d0f
  */
-static const struct nt57900_cmd nt57900_on[] = {
+static const struct wj026da_cmd wj026da_on[] = {
 	{ 0x29, 0, 2, { 0xff, 0x23 } },
 	{ 0x29, 0, 2, { 0x97, 0x02 } },
 	{ 0x29, 0, 2, { 0x98, 0x69 } },
@@ -72,7 +72,7 @@ static const struct nt57900_cmd nt57900_on[] = {
 /* qcom,mdss-dsi-on-command_p1
  * SHA256: c0ec3dba68b04e7051f2d707e758a49b3361381a7975bec3551b4b699c5922d7
  */
-static const struct nt57900_cmd nt57900_on_p1[] = {
+static const struct wj026da_cmd wj026da_on_p1[] = {
 	{ 0x29, 0, 2, { 0xff, 0x10 } },
 	{ 0x29, 0, 2, { 0x51, 0xff } },
 	{ 0x29, 0, 2, { 0x53, 0x24 } },
@@ -87,15 +87,15 @@ static const struct nt57900_cmd nt57900_on_p1[] = {
 /* qcom,mdss-dsi-off-command
  * SHA256: c09f10cbd7e0150e77fab2922392201b033ffd19ea8c9afa596d65630aacdf10
  */
-static const struct nt57900_cmd nt57900_off[] = {
+static const struct wj026da_cmd wj026da_off[] = {
 	{ 0x05, 50, 2, { 0x28, 0x00 } },
 	{ 0x05, 120, 2, { 0x10, 0x00 } },
 };
 
-/* qcom,mdss-dsi-post-90-nt57900-on-command
+/* qcom,mdss-dsi-post-90-wj026da-on-command
  * SHA256: 0830ee1cb615d734b90a22408402fefd4786af232380083c14dc2c60c34457be
  */
-static const struct nt57900_cmd nt57900_post_90[] = {
+static const struct wj026da_cmd wj026da_post_90[] = {
 	{ 0x29, 0, 2, { 0xff, 0x23 } },
 	{ 0x29, 0, 2, { 0x97, 0x02 } },
 	{ 0x29, 0, 2, { 0x98, 0x69 } },
@@ -120,10 +120,10 @@ static const struct nt57900_cmd nt57900_post_90[] = {
 	{ 0x29, 0, 2, { 0xfb, 0x01 } },
 };
 
-/* qcom,mdss-dsi-post-72-nt57900-on-command
+/* qcom,mdss-dsi-post-72-wj026da-on-command
  * SHA256: 1cc05be7506ccfdd2ea229c473301d4ac045c6910187c7ccaf60c3e3bc736cff
  */
-static const struct nt57900_cmd nt57900_post_72[] = {
+static const struct wj026da_cmd wj026da_post_72[] = {
 	{ 0x29, 0, 2, { 0xff, 0x23 } },
 	{ 0x29, 0, 2, { 0x97, 0x03 } },
 	{ 0x29, 0, 2, { 0x98, 0x03 } },
@@ -148,10 +148,10 @@ static const struct nt57900_cmd nt57900_post_72[] = {
 	{ 0x29, 0, 2, { 0xfb, 0x01 } },
 };
 
-/* qcom,mdss-dsi-post-120-nt57900-on-command
+/* qcom,mdss-dsi-post-120-wj026da-on-command
  * SHA256: 70b69baec0f6ec02baa29ab996feb684762b5ff1305ae50bc910e0bf5c8fa44e
  */
-static const struct nt57900_cmd nt57900_post_120[] = {
+static const struct wj026da_cmd wj026da_post_120[] = {
 	{ 0x29, 0, 2, { 0xff, 0x23 } },
 	{ 0x29, 0, 2, { 0x97, 0x01 } },
 	{ 0x29, 0, 2, { 0x98, 0xcf } },

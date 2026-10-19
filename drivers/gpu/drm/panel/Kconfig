@@ -1157,15 +1157,14 @@ config DRM_PANEL_XINPENG_XPP055C272
 	  XPP055C272 controller for 720x1280 LCD panels with MIPI/RGB/SPI
 	  system interfaces.
 # BEGIN PICO A8110 PANEL (scripts/install_a8110_panel.py)
-config DRM_PANEL_PICO_NT57900
-	tristate "PICO A8110 dual Innolux NT57900 panel (bring-up)"
+config DRM_PANEL_INNOLUX_WJ026DA
+	tristate "Innolux WJ026DA-03A dual-DSI panel (NT57900 DDIC)"
 	depends on OF && GPIOLIB
 	depends on DRM_MIPI_DSI && BACKLIGHT_CLASS_DEVICE
 	depends on REGULATOR
 	help
-	  Experimental dual-DSI 4320x2160 90Hz panel driver for PICO A8110.
-	  The board display nodes must remain disabled until bias supplies,
-	  external backlight and the four-DSC DPU pipeline are validated.
+	  Dual-DSI 4320x2160 90Hz panel driver for the Innolux WJ026DA-03A
+	  module (Novatek NT57900 DDIC) on PICO A8110.
 
 # END PICO A8110 PANEL
 

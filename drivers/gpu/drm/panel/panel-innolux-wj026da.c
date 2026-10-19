@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * PICO A8110 dual Innolux NT57900 panel bring-up driver.
+ * Innolux WJ026DA-03A (NT57900 DDIC) panel driver.
  * Timing/commands: the device's stock runtime DTB. Sequence ordering:
  * bytedance/phoenix-kernel ceafd3afc020, dsi_panel.c and dsi_drm.c.
  *
@@ -33,20 +33,20 @@ int msm_dsi_host_enable(struct mipi_dsi_host *host);
 /* A8110 continuous-splash handoff, defined in msm_drv.c. */
 extern bool msm_cont_splash;
 
-#include "panel-pico-nt57900-cmds.h"
+#include "panel-innolux-wj026da-cmds.h"
 
 /* Stock panel-supply-entries, followed by the external AW3750x bias rails. */
-static const char * const nt57900_supply_names[] = {
+static const char * const wj026da_supply_names[] = {
 	"vddio", "vdd", "lab", "ibb", "vsp", "vsn",
 };
-static const unsigned int nt57900_on_delay[] = { 20, 0, 6, 20, 8, 8 };
-static const unsigned int nt57900_off_delay[] = { 0, 0, 6, 12, 8, 2 };
+static const unsigned int wj026da_on_delay[] = { 20, 0, 6, 20, 8, 8 };
+static const unsigned int wj026da_off_delay[] = { 0, 0, 6, 12, 8, 2 };
 
-struct nt57900 {
+struct wj026da {
 	struct drm_panel panel;
 	struct mipi_dsi_device *dsi[2];
 	struct drm_dsc_config dsc[2];
-	struct regulator *supplies[ARRAY_SIZE(nt57900_supply_names)];
+	struct regulator *supplies[ARRAY_SIZE(wj026da_supply_names)];
 	struct gpio_desc *reset;
 	struct gpio_desc *vio_enable;
 	struct gpio_desc *enp;
@@ -56,9 +56,9 @@ struct nt57900 {
 	bool preserve_power;
 };
 
-static inline struct nt57900 *to_nt57900(struct drm_panel *panel)
+static inline struct wj026da *to_wj026da(struct drm_panel *panel)
 {
-	return container_of(panel, struct nt57900, panel);
+	return container_of(panel, struct wj026da, panel);
 }
 
 /*
@@ -71,9 +71,9 @@ static inline struct nt57900 *to_nt57900(struct drm_panel *panel)
  * link is settling. Retry the individual command before failing the whole
  * panel init; this is safe in command mode because the video engine is off.
  */
-#define NT57900_CMD_RETRIES	3
+#define WJ026DA_CMD_RETRIES	3
 
-static int nt57900_send(struct nt57900 *ctx, const struct nt57900_cmd *cmds,
+static int wj026da_send(struct wj026da *ctx, const struct wj026da_cmd *cmds,
 			unsigned int count, bool lp)
 {
 	unsigned int i, link;
@@ -99,11 +99,11 @@ static int nt57900_send(struct nt57900 *ctx, const struct nt57900_cmd *cmds,
 			if (!dsi->host->ops->transfer)
 				return -EOPNOTSUPP;
 
-			for (attempt = 0; attempt < NT57900_CMD_RETRIES; attempt++) {
+			for (attempt = 0; attempt < WJ026DA_CMD_RETRIES; attempt++) {
 				ret = dsi->host->ops->transfer(dsi->host, &msg);
 				if (ret >= 0 && ret >= msg.tx_len)
 					break;
-				if (attempt + 1 < NT57900_CMD_RETRIES) {
+				if (attempt + 1 < WJ026DA_CMD_RETRIES) {
 					dev_warn(ctx->panel.dev,
 						 "DSI%u command %u retry %u (ret=%zd)\n",
 						 link, i, attempt + 1, ret);
@@ -125,7 +125,7 @@ static int nt57900_send(struct nt57900 *ctx, const struct nt57900_cmd *cmds,
 	return 0;
 }
 
-static int nt57900_power_off(struct nt57900 *ctx)
+static int wj026da_power_off(struct wj026da *ctx)
 {
 	int ret = 0, err;
 
@@ -152,16 +152,16 @@ static int nt57900_power_off(struct nt57900 *ctx)
 		err = regulator_disable(ctx->supplies[i]);
 		if (err && !ret)
 			ret = err;
-		if (nt57900_off_delay[i])
-			fsleep(nt57900_off_delay[i] * 1000);
+		if (wj026da_off_delay[i])
+			fsleep(wj026da_off_delay[i] * 1000);
 	}
 	gpiod_set_value_cansleep(ctx->vio_enable, 0);
 	return ret;
 }
 
-static int nt57900_prepare(struct drm_panel *panel)
+static int wj026da_prepare(struct drm_panel *panel)
 {
-	struct nt57900 *ctx = to_nt57900(panel);
+	struct wj026da *ctx = to_wj026da(panel);
 	unsigned int i;
 	int ret;
 
@@ -183,8 +183,8 @@ static int nt57900_prepare(struct drm_panel *panel)
 			if (ret)
 				goto power_off;
 			ctx->supplies_on++;
-			if (nt57900_on_delay[i])
-				fsleep(nt57900_on_delay[i] * 1000);
+			if (wj026da_on_delay[i])
+				fsleep(wj026da_on_delay[i] * 1000);
 		}
 	}
 
@@ -205,9 +205,9 @@ static int nt57900_prepare(struct drm_panel *panel)
 
 initialize:
 	if (ctx->p1)
-		ret = nt57900_send(ctx, nt57900_on_p1, ARRAY_SIZE(nt57900_on_p1), true);
+		ret = wj026da_send(ctx, wj026da_on_p1, ARRAY_SIZE(wj026da_on_p1), true);
 	else
-		ret = nt57900_send(ctx, nt57900_on, ARRAY_SIZE(nt57900_on), true);
+		ret = wj026da_send(ctx, wj026da_on, ARRAY_SIZE(wj026da_on), true);
 	if (ret)
 		goto power_off;
 
@@ -226,8 +226,8 @@ initialize:
 	 * probabilistic backlight-only / one-garbled-eye failure.
 	 */
 	if (!ctx->p1) {
-		ret = nt57900_send(ctx, nt57900_post_90,
-				   ARRAY_SIZE(nt57900_post_90), true);
+		ret = wj026da_send(ctx, wj026da_post_90,
+				   ARRAY_SIZE(wj026da_post_90), true);
 		if (ret)
 			goto power_off;
 	}
@@ -253,14 +253,14 @@ initialize:
 	return 0;
 
 power_off:
-	nt57900_power_off(ctx);
+	wj026da_power_off(ctx);
 	return ret;
 }
 
-static int nt57900_enable(struct drm_panel *panel)
+static int wj026da_enable(struct drm_panel *panel)
 {
 	/*
-	 * post-90 is sent from nt57900_prepare(), before DSI video mode is
+	 * post-90 is sent from wj026da_prepare(), before DSI video mode is
 	 * enabled. The mainline enable hook runs before the DPU encoder
 	 * enable, so it cannot send commands that wait for video-done.
 	 */
@@ -268,18 +268,18 @@ static int nt57900_enable(struct drm_panel *panel)
 	return 0;
 }
 
-static int nt57900_disable(struct drm_panel *panel)
+static int wj026da_disable(struct drm_panel *panel)
 {
-	return nt57900_send(to_nt57900(panel), nt57900_off, ARRAY_SIZE(nt57900_off), false);
+	return wj026da_send(to_wj026da(panel), wj026da_off, ARRAY_SIZE(wj026da_off), false);
 }
 
-static int nt57900_unprepare(struct drm_panel *panel)
+static int wj026da_unprepare(struct drm_panel *panel)
 {
-	return nt57900_power_off(to_nt57900(panel));
+	return wj026da_power_off(to_wj026da(panel));
 }
 
 /* The downstream display code doubles ALL horizontal timings for two links. */
-static const struct drm_display_mode nt57900_mode = {
+static const struct drm_display_mode wj026da_mode = {
 	.clock = (2160 + 161 + 4 + 161) * 2 * (2160 + 48 + 2 + 14) * 90 / 1000,
 	.hdisplay = 2160 * 2,
 	.hsync_start = (2160 + 161) * 2,
@@ -294,41 +294,41 @@ static const struct drm_display_mode nt57900_mode = {
 	.type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED,
 };
 
-static int nt57900_get_modes(struct drm_panel *panel, struct drm_connector *connector)
+static int wj026da_get_modes(struct drm_panel *panel, struct drm_connector *connector)
 {
 	struct drm_display_mode *mode;
 
-	mode = drm_mode_duplicate(connector->dev, &nt57900_mode);
+	mode = drm_mode_duplicate(connector->dev, &wj026da_mode);
 	if (!mode)
 		return -ENOMEM;
 	drm_mode_set_name(mode);
 	drm_mode_probed_add(connector, mode);
-	connector->display_info.width_mm = nt57900_mode.width_mm;
-	connector->display_info.height_mm = nt57900_mode.height_mm;
+	connector->display_info.width_mm = wj026da_mode.width_mm;
+	connector->display_info.height_mm = wj026da_mode.height_mm;
 	connector->display_info.bpc = 8;
 	return 1;
 }
 
-static const struct drm_panel_funcs nt57900_panel_funcs = {
-	.prepare = nt57900_prepare,
-	.enable = nt57900_enable,
-	.disable = nt57900_disable,
-	.unprepare = nt57900_unprepare,
-	.get_modes = nt57900_get_modes,
+static const struct drm_panel_funcs wj026da_panel_funcs = {
+	.prepare = wj026da_prepare,
+	.enable = wj026da_enable,
+	.disable = wj026da_disable,
+	.unprepare = wj026da_unprepare,
+	.get_modes = wj026da_get_modes,
 };
 
-static int nt57900_probe(struct mipi_dsi_device *dsi)
+static int wj026da_probe(struct mipi_dsi_device *dsi)
 {
-	const struct mipi_dsi_device_info secondary = { .type = "nt57900-secondary" };
+	const struct mipi_dsi_device_info secondary = { .type = "wj026da-secondary" };
 	struct device *dev = &dsi->dev;
 	struct device_node *node;
 	struct mipi_dsi_host *host;
-	struct nt57900 *ctx;
+	struct wj026da *ctx;
 	const char *sequence;
 	unsigned int i;
 	int ret;
 
-	ctx = devm_drm_panel_alloc(dev, struct nt57900, panel, &nt57900_panel_funcs,
+	ctx = devm_drm_panel_alloc(dev, struct wj026da, panel, &wj026da_panel_funcs,
 				 DRM_MODE_CONNECTOR_DSI);
 	if (IS_ERR(ctx))
 		return PTR_ERR(ctx);
@@ -350,13 +350,13 @@ static int nt57900_probe(struct mipi_dsi_device *dsi)
 	for (i = 0; i < ARRAY_SIZE(ctx->supplies); i++) {
 		char property[24];
 
-		snprintf(property, sizeof(property), "%s-supply", nt57900_supply_names[i]);
+		snprintf(property, sizeof(property), "%s-supply", wj026da_supply_names[i]);
 		if (!of_find_property(dev->of_node, property, NULL))
 			return dev_err_probe(dev, -EINVAL, "missing required %s\n", property);
-		ctx->supplies[i] = devm_regulator_get(dev, nt57900_supply_names[i]);
+		ctx->supplies[i] = devm_regulator_get(dev, wj026da_supply_names[i]);
 		if (IS_ERR(ctx->supplies[i]))
 			return dev_err_probe(dev, PTR_ERR(ctx->supplies[i]),
-					     "failed to get %s\n", nt57900_supply_names[i]);
+					     "failed to get %s\n", wj026da_supply_names[i]);
 	}
 	if (!of_find_property(dev->of_node, "backlight", NULL))
 		return dev_err_probe(dev, -EINVAL, "external backlight provider is required\n");
@@ -432,38 +432,39 @@ configure_links:
 	return 0;
 }
 
-static void nt57900_shutdown(struct mipi_dsi_device *dsi)
+static void wj026da_shutdown(struct mipi_dsi_device *dsi)
 {
-	struct nt57900 *ctx = mipi_dsi_get_drvdata(dsi);
+	struct wj026da *ctx = mipi_dsi_get_drvdata(dsi);
 
 	drm_panel_disable(&ctx->panel);
 	drm_panel_unprepare(&ctx->panel);
 }
 
-static void nt57900_remove(struct mipi_dsi_device *dsi)
+static void wj026da_remove(struct mipi_dsi_device *dsi)
 {
-	struct nt57900 *ctx = mipi_dsi_get_drvdata(dsi);
+	struct wj026da *ctx = mipi_dsi_get_drvdata(dsi);
 
-	nt57900_shutdown(dsi);
+	wj026da_shutdown(dsi);
 	drm_panel_remove(&ctx->panel);
 }
 
-static const struct of_device_id nt57900_of_match[] = {
+static const struct of_device_id wj026da_of_match[] = {
+	{ .compatible = "innolux,wj026da-03a" },
 	{ .compatible = "pico,a8110-nt57900" },
 	{ }
 };
-MODULE_DEVICE_TABLE(of, nt57900_of_match);
+MODULE_DEVICE_TABLE(of, wj026da_of_match);
 
-static struct mipi_dsi_driver nt57900_driver = {
-	.probe = nt57900_probe,
-	.remove = nt57900_remove,
-	.shutdown = nt57900_shutdown,
+static struct mipi_dsi_driver wj026da_driver = {
+	.probe = wj026da_probe,
+	.remove = wj026da_remove,
+	.shutdown = wj026da_shutdown,
 	.driver = {
-		.name = "panel-pico-nt57900",
-		.of_match_table = nt57900_of_match,
+		.name = "panel-innolux-wj026da",
+		.of_match_table = wj026da_of_match,
 	},
 };
-module_mipi_dsi_driver(nt57900_driver);
+module_mipi_dsi_driver(wj026da_driver);
 
-MODULE_DESCRIPTION("PICO A8110 dual NT57900 panel bring-up driver");
+MODULE_DESCRIPTION("Innolux WJ026DA-03A panel driver (NT57900 DDIC)");
 MODULE_LICENSE("GPL");

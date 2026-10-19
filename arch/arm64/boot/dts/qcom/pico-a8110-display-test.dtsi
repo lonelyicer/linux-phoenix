@@ -8,7 +8,7 @@
 &mdss_dsi0_phy { status = "okay"; };
 &mdss_dsi1_phy { status = "okay"; };
 
-&pico_panel {
+&panel_innolux_wj026da {
 	status = "okay";
 	/* Captured stock last_kmsg_9: hw_version_display:3 (not P1). */
 	pico,init-sequence = "production";

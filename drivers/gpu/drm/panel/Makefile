@@ -118,5 +118,5 @@ obj-$(CONFIG_DRM_PANEL_WIDECHIPS_WS2401) += panel-widechips-ws2401.o
 obj-$(CONFIG_DRM_PANEL_XINPENG_XPP055C272) += panel-xinpeng-xpp055c272.o
 
 # BEGIN PICO A8110 PANEL (scripts/install_a8110_panel.py)
-obj-$(CONFIG_DRM_PANEL_PICO_NT57900) += panel-pico-nt57900.o
+obj-$(CONFIG_DRM_PANEL_INNOLUX_WJ026DA) += panel-innolux-wj026da.o
 # END PICO A8110 PANEL
