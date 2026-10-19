@@ -653,3 +653,36 @@
 		bias-disable;
 	};
 };
+
+&spmi_bus {
+	pmic@5 {
+		qcom,lcdb@ec00 {
+			compatible = "qcom,qpnp-lcdb-regulator";
+			reg = <0xec00 0x100>;
+			interrupts = <0x5 0xec 0x1 1>;
+			interrupt-names = "sc-irq";
+			status = "okay";
+
+			lcdb_ldo: ldo {
+				label = "ldo";
+				regulator-name = "lcdb_ldo";
+				regulator-min-microvolt = <5800000>;
+				regulator-max-microvolt = <5800000>;
+			};
+
+			lcdb_ncp: ncp {
+				label = "ncp";
+				regulator-name = "lcdb_ncp";
+				regulator-min-microvolt = <5800000>;
+				regulator-max-microvolt = <5800000>;
+			};
+
+			bst {
+				label = "bst";
+				regulator-name = "lcdb_bst";
+				regulator-min-microvolt = <4700000>;
+				regulator-max-microvolt = <6275000>;
+			};
+		};
+	};
+};

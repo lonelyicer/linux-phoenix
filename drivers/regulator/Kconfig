@@ -1819,3 +1819,11 @@ config REGULATOR_QCOM_LABIBB
 	  for LCD display panel.
 
 endif
+config REGULATOR_QCOM_QPNP_LCDB
+	tristate "Qualcomm QPNP LCDB regulator"
+	depends on REGULATOR && OF
+	depends on SPMI
+	help
+	  Say Y here to enable the Qualcomm QPNP LCDB regulator found on
+	  PM8150L. It provides the positive LDO and negative NCP rails used
+	  by the A8110 display panel.

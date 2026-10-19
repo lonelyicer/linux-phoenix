@@ -35,6 +35,8 @@
 		 */
 		enp-gpios = <&tlmm 15 GPIO_ACTIVE_HIGH>;
 		enn-gpios = <&tlmm 91 GPIO_ACTIVE_HIGH>;
+		lab-supply = <&lcdb_ldo>;
+		ibb-supply = <&lcdb_ncp>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&panel_innolux_wj026da_reset>, <&panel_innolux_wj026da_vio>;
 		status = "disabled";
