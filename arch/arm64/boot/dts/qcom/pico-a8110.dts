@@ -686,3 +686,9 @@
 		};
 	};
 };
+
+&pm8150l_wled {
+	status = "okay";
+	qcom,auto-string-detection;
+	default-brightness = <2047>;
+};

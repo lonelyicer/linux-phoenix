@@ -10,6 +10,7 @@
  */
 
 #include <linux/delay.h>
+#include <linux/backlight.h>
 #include <linux/gpio/consumer.h>
 #include <linux/module.h>
 #include <linux/of.h>
@@ -51,6 +52,7 @@ struct wj026da {
 	struct gpio_desc *vio_enable;
 	struct gpio_desc *enp;
 	struct gpio_desc *enn;
+	struct backlight_device *bl;
 	unsigned int supplies_on;
 	bool p1;
 	bool preserve_power;
@@ -358,11 +360,16 @@ static int wj026da_probe(struct mipi_dsi_device *dsi)
 			return dev_err_probe(dev, PTR_ERR(ctx->supplies[i]),
 					     "failed to get %s\n", wj026da_supply_names[i]);
 	}
-	if (!of_find_property(dev->of_node, "backlight", NULL))
-		return dev_err_probe(dev, -EINVAL, "external backlight provider is required\n");
-	ret = drm_panel_of_backlight(&ctx->panel);
-	if (ret)
-		return ret;
+	if (of_find_property(dev->of_node, "backlight", NULL)) {
+		ret = drm_panel_of_backlight(&ctx->panel);
+		if (ret)
+			return ret;
+	} else {
+		/* Vendor dsi_panel.c uses the raw backlight class (PM8150L WLED). */
+		ctx->bl = backlight_device_get_by_type(BACKLIGHT_RAW);
+		if (!ctx->bl)
+			return -EPROBE_DEFER;
+	}
 
 secondary_host:
 	node = of_graph_get_remote_node(dev->of_node, 1, -1);
